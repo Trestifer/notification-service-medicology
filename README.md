@@ -7,7 +7,7 @@ Spring Boot notification service scaffold with OpenAPI/Swagger enabled.
 - Spring Boot 3.3.5
 - Maven Wrapper
 - springdoc-openapi 2.6.0
-
+-
 ## Run locally
 1. Windows: `./mvnw.cmd spring-boot:run`
 2. macOS/Linux: `./mvnw spring-boot:run`
