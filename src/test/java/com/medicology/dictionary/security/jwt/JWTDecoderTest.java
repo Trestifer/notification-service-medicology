@@ -15,7 +15,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "jwt.secret=0123456789abcdef0123456789abcdef",
+        "jwt.issuer=medicology-auth",
+        "jwt.audience=medicology-api"
+})
 class JWTDecoderTest {
 
     @Autowired
