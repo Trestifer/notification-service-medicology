@@ -1,12 +1,9 @@
 package com.medicology.dictionary.controller;
 
-import com.medicology.dictionary.dto.request.EmailReminderRequest;
 import com.medicology.dictionary.dto.request.NotificationCreateRequest;
 import com.medicology.dictionary.dto.request.NotificationPreferenceRequest;
-import com.medicology.dictionary.dto.response.EmailReminderResponse;
 import com.medicology.dictionary.dto.response.NotificationPreferenceResponse;
 import com.medicology.dictionary.dto.response.NotificationResponse;
-import com.medicology.dictionary.service.EmailReminderService;
 import com.medicology.dictionary.service.NotificationService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -28,7 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class NotificationController {
     private final NotificationService notificationService;
-    private final EmailReminderService emailReminderService;
 
     @GetMapping
     public ResponseEntity<List<NotificationResponse>> getNotifications() {
@@ -48,16 +44,6 @@ public class NotificationController {
     @PostMapping
     public ResponseEntity<NotificationResponse> createNotification(@Valid @RequestBody NotificationCreateRequest request) {
         return ResponseEntity.ok(notificationService.createNotification(request));
-    }
-
-    @PostMapping("/emails/daily-reminder")
-    public ResponseEntity<EmailReminderResponse> sendDailyReminder(@Valid @RequestBody(required = false) EmailReminderRequest request) {
-        return ResponseEntity.ok(emailReminderService.sendDailyReminder(request));
-    }
-
-    @PostMapping("/emails/streak-risk")
-    public ResponseEntity<EmailReminderResponse> sendStreakRiskReminder(@Valid @RequestBody(required = false) EmailReminderRequest request) {
-        return ResponseEntity.ok(emailReminderService.sendStreakRiskReminder(request));
     }
 
     @PatchMapping("/{id}/read")

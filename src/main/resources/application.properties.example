@@ -30,4 +30,4 @@ sendgrid.from-email=${SENDGRID_FROM_EMAIL:}
 sendgrid.api.key=${SENDGRID_API_KEY:}
 
 notification.reminder-zone=${NOTIFICATION_REMINDER_ZONE:Asia/Ho_Chi_Minh}
-notification.streak-risk.cron=${NOTIFICATION_STREAK_RISK_CRON:0 30 21 * * *}
+notification.reminder-check.cron=${NOTIFICATION_REMINDER_CHECK_CRON:0 * * * * *}

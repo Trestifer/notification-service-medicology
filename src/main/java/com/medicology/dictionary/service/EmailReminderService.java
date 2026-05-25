@@ -1,6 +1,9 @@
 package com.medicology.dictionary.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.medicology.dictionary.dto.EmailTemplatePreviewRequest;
+import com.medicology.dictionary.dto.EmailTemplateType;
 import com.medicology.dictionary.dto.request.EmailReminderRequest;
 import com.medicology.dictionary.dto.response.EmailReminderResponse;
 import com.medicology.dictionary.entity.Notification;
@@ -13,48 +16,43 @@ import com.medicology.dictionary.repository.notification.NotificationDeliveryRep
 import com.medicology.dictionary.repository.notification.NotificationPreferenceRepository;
 import com.medicology.dictionary.repository.notification.NotificationRepository;
 import com.medicology.dictionary.wrapper.UserPrincipal;
+import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
 public class EmailReminderService {
 
     private static final String DAILY_REMINDER = "DAILY_STUDY_REMINDER";
+    private static final String CALLING_BACK = "CALLING_BACK_REMINDER";
     private static final String STREAK_RISK = "STREAK_RISK_REMINDER";
-
-    private static final List<String> ACTIVE_STREAK_MESSAGES = List.of(
-            "Chuẩn bị bắt đầu 1 ngày học năng động thôi nào, mạch học của bạn đang rất đẹp.",
-            "Hôm nay mình tiếp tục nhé, chỉ một bài ngắn cũng giữ nhịp học rất tốt.",
-            "Bạn đang tạo được thói quen học đều mỗi ngày, vào học một chút để giữ lửa nào.",
-            "Một ngày mới để thêm kiến thức mới, streak của bạn đang cho bạn thêm động lực.",
-            "Đừng để những ngày học tốt bị ngắt quãng, bắt đầu bằng một bài nhẹ nhàng nhé.",
-            "Tiếp tục hành trình nào, mỗi lần học hôm nay sẽ làm ngày mai dễ dàng hơn.");
-
-    private static final List<String> CALLBACK_MESSAGES = List.of(
-            "Lâu rồi mình chưa thấy bạn học. Quay lại với một bài ngắn để khởi động lại nhé.",
-            "Streak có thể đã bị gián đoạn, nhưng chỉ cần một phiên học hôm nay là bạn bắt đầu lại được.",
-            "Đừng để việc học xa dần thêm. Mở Medicology và hoàn thành một nội dung nhỏ trước nhé.",
-            "Bạn đã nghỉ khá lâu rồi. Hãy quay lại bằng bài học ngắn nhất để lấy lại nhịp.",
-            "Kiến thức y khoa cần được ôn đều. Hôm nay là lúc tốt để kết nối lại với Medicology.");
+    private static final String SENDGRID_MAIL_SEND_URL = "https://api.sendgrid.com/v3/mail/send";
+    private static final String DEFAULT_ACTION_URL = "https://medicology.app";
+    private static final String DEFAULT_SUPPORT_EMAIL = "support@medicology.app";
 
     private final NotificationRepository notificationRepository;
     private final NotificationDeliveryRepository deliveryRepository;
@@ -62,6 +60,7 @@ public class EmailReminderService {
     private final UserAccountRepository userAccountRepository;
     private final UserDailyStreakRepository streakRepository;
     private final AuthenticatedUserService authenticatedUserService;
+    private final EmailTemplateService emailTemplateService;
     private final RestTemplateBuilder restTemplateBuilder;
     private final ObjectMapper objectMapper;
 
@@ -75,8 +74,9 @@ public class EmailReminderService {
     public EmailReminderResponse sendDailyReminder(EmailReminderRequest request) {
         ReminderTarget target = resolveTarget(request);
         UserDailyStreak streak = streakRepository.findById(target.userId()).orElseGet(() -> emptyStreak(target.userId()));
-        ReminderCopy copy = buildDailyCopy(streak);
-        return sendAndRecord(target, DAILY_REMINDER, copy, streakValue(streak));
+        int currentStreak = streakValue(streak);
+        EmailTemplateType templateType = emailTemplateService.resolveTemplateType(null, currentStreak, streak.getLastActivityDate());
+        return sendAndRecord(target, notificationTypeFor(templateType), templateType, buildReminderCopy(templateType, streak), currentStreak);
     }
 
     @Transactional
@@ -85,19 +85,49 @@ public class EmailReminderService {
         return sendStreakRiskReminder(target);
     }
 
-    public int sendStreakRiskRemindersToSubscribedUsers() {
+    @Transactional
+    public int sendDueRemindersToSubscribedUsers(ZoneId zoneId) {
         int sent = 0;
+        LocalTime currentTime = LocalTime.now(zoneId);
+        LocalDate today = LocalDate.now(zoneId);
+
         for (NotificationPreference preference : preferenceRepository.findByEmailEnabledTrue()) {
+            if (!preference.isDailyReminderEnabled() || !isReminderMinute(preference.getReminderTime(), currentTime)) {
+                continue;
+            }
             String email = resolveStoredEmail(preference);
             if (email == null) {
                 continue;
             }
-            EmailReminderResponse response = sendStreakRiskReminder(new ReminderTarget(preference.getUserId(), email));
+            EmailReminderResponse response = sendScheduledReminder(new ReminderTarget(preference.getUserId(), email), today);
             if (response.sent()) {
                 sent++;
             }
         }
         return sent;
+    }
+
+    private EmailReminderResponse sendScheduledReminder(ReminderTarget target, LocalDate today) {
+        UserDailyStreak streak = streakRepository.findById(target.userId()).orElseGet(() -> emptyStreak(target.userId()));
+        int currentStreak = streakValue(streak);
+        EmailTemplateType templateType = emailTemplateService.resolveTemplateType(null, currentStreak, streak.getLastActivityDate());
+        String type = notificationTypeFor(templateType);
+
+        if (notificationRepository.existsByUserIdAndTypeAndCreatedAtBetween(
+                target.userId(), type, today.atStartOfDay(), today.plusDays(1).atStartOfDay())) {
+            return new EmailReminderResponse(
+                    null,
+                    target.userId(),
+                    target.email(),
+                    type,
+                    "Reminder skipped",
+                    "Reminder already created today.",
+                    currentStreak,
+                    false,
+                    "SKIPPED",
+                    null);
+        }
+        return sendAndRecord(target, type, templateType, buildReminderCopy(templateType, streak), currentStreak);
     }
 
     private String resolveStoredEmail(NotificationPreference preference) {
@@ -126,11 +156,12 @@ public class EmailReminderService {
                     "SKIPPED",
                     null);
         }
-        ReminderCopy copy = new ReminderCopy(
-                "Đừng để mất streak " + currentStreak + " ngày của bạn",
-                "Chỉ còn từ 21:30 tới trước nửa đêm để giữ streak " + currentStreak + " ngày. Hoàn thành một bài học ngắn trên Medicology ngay nhé.",
-                "Streak " + currentStreak + " ngày đang cần bạn quay lại");
-        return sendAndRecord(target, STREAK_RISK, copy, currentStreak);
+        return sendAndRecord(
+                target,
+                STREAK_RISK,
+                EmailTemplateType.STREAK_RISK,
+                buildReminderCopy(EmailTemplateType.STREAK_RISK, streak),
+                currentStreak);
     }
 
     private ReminderTarget resolveTarget(EmailReminderRequest request) {
@@ -154,7 +185,12 @@ public class EmailReminderService {
         return new ReminderTarget(targetUserId, email);
     }
 
-    private EmailReminderResponse sendAndRecord(ReminderTarget target, String type, ReminderCopy copy, int currentStreak) {
+    private EmailReminderResponse sendAndRecord(
+            ReminderTarget target,
+            String type,
+            EmailTemplateType templateType,
+            ReminderCopy copy,
+            int currentStreak) {
         Notification notification = new Notification();
         notification.setUserId(target.userId());
         notification.setType(type);
@@ -165,9 +201,9 @@ public class EmailReminderService {
         NotificationDelivery delivery = new NotificationDelivery();
         delivery.setNotification(saved);
         try {
-            sendViaSendGrid(target.email(), copy.subject(), copy.preview(), buildHtml(copy, currentStreak, type));
+            sendViaSendGrid(target.email(), copy.subject(), copy.preview(), buildHtml(copy, currentStreak, templateType), templateType);
             delivery.setStatus("SENT");
-            delivery.setSentAt(java.time.LocalDateTime.now());
+            delivery.setSentAt(LocalDateTime.now());
         } catch (RuntimeException ex) {
             delivery.setStatus("FAILED");
             delivery.setFailureReason(ex.getMessage());
@@ -187,54 +223,104 @@ public class EmailReminderService {
                 savedDelivery.getFailureReason());
     }
 
-    private void sendViaSendGrid(String toEmail, String subject, String text, String html) {
+    private void sendViaSendGrid(String toEmail, String subject, String text, String html, EmailTemplateType templateType) {
         if (sendGridApiKey == null || sendGridApiKey.isBlank() || fromEmail == null || fromEmail.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "SendGrid is not configured.");
         }
 
-        RestTemplate restTemplate = restTemplateBuilder.build();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(sendGridApiKey);
         headers.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = Map.of(
-                "personalizations", List.of(Map.of("to", List.of(Map.of("email", toEmail)))),
-                "from", Map.of("email", fromEmail),
-                "subject", subject,
-                "content", List.of(
-                        Map.of("type", "text/plain", "value", text),
-                        Map.of("type", "text/html", "value", html)));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("personalizations", List.of(Map.of("to", List.of(Map.of("email", toEmail)))));
+        body.put("from", Map.of("email", fromEmail));
+        body.put("subject", subject);
+        body.put("content", List.of(
+                Map.of("type", "text/plain", "value", text),
+                Map.of("type", "text/html", "value", html)));
+        inlineMascotAttachment(templateType).ifPresent(attachment -> body.put("attachments", List.of(attachment)));
 
         try {
             String payload = objectMapper.writeValueAsString(body);
-            ResponseEntity<String> response = restTemplate.exchange(
-                    "https://api.sendgrid.com/v3/mail/send",
+            ResponseEntity<String> response = restTemplateBuilder.build().exchange(
+                    SENDGRID_MAIL_SEND_URL,
                     HttpMethod.POST,
                     new HttpEntity<>(payload, headers),
                     String.class);
             if (!response.getStatusCode().is2xxSuccessful()) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "SendGrid rejected the email.");
             }
-        } catch (RestClientException | com.fasterxml.jackson.core.JsonProcessingException ex) {
+        } catch (JsonProcessingException | RestClientException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "SendGrid send failed: " + ex.getMessage());
         }
     }
 
-    private ReminderCopy buildDailyCopy(UserDailyStreak streak) {
-        boolean validStreak = hasValidStreak(streak);
-        String message = validStreak ? random(ACTIVE_STREAK_MESSAGES) : callbackBySeverity(streak);
+    private ReminderCopy buildReminderCopy(EmailTemplateType templateType, UserDailyStreak streak) {
         int currentStreak = streakValue(streak);
-        String subject = validStreak
-                ? "Sẵn sàng giữ streak " + currentStreak + " ngày?"
-                : "Medicology đang chờ bạn quay lại";
-        return new ReminderCopy(subject, message, validStreak ? "Hôm nay học tiếp để giữ nhịp nhé" : "Bắt đầu lại bằng một bài ngắn");
+        return switch (templateType) {
+            case STREAK_RISK -> new ReminderCopy(
+                    "Đừng để mất streak " + currentStreak + " ngày của bạn",
+                    "Hoàn thành một bài học ngắn hôm nay để bảo vệ tiến độ của bạn.",
+                    "Streak của bạn đang có nguy cơ bị mất");
+            case CALLING_BACK -> new ReminderCopy(
+                    "Quay lại Medicology nhé",
+                    callbackBySeverity(streak),
+                    "Quay lại Medicology nhé");
+            case EVERYDAY_REMINDER -> new ReminderCopy(
+                    currentStreak > 0 ? "Sẵn sàng giữ streak " + currentStreak + " ngày?" : "Sẵn sàng cho bài học hôm nay chưa?",
+                    "Chỉ cần một phiên học ngắn trên Medicology hôm nay cũng giúp bạn giữ thói quen học đều.",
+                    "Sẵn sàng cho bài học hôm nay chưa?");
+            case NOTIFICATION -> new ReminderCopy(
+                    "Cập nhật mới từ Medicology",
+                    "Bạn có một cập nhật mới trong hành trình học tập.",
+                    "Cập nhật mới từ Medicology");
+        };
     }
 
-    private static boolean hasValidStreak(UserDailyStreak streak) {
-        if (streak == null || streakValue(streak) <= 0 || streak.getLastActivityDate() == null) {
-            return false;
+    private String buildHtml(ReminderCopy copy, int currentStreak, EmailTemplateType templateType) {
+        EmailTemplatePreviewRequest request = new EmailTemplatePreviewRequest(
+                null,
+                copy.headline(),
+                copy.preview(),
+                actionTextFor(templateType),
+                DEFAULT_ACTION_URL,
+                secondaryMessageFor(templateType),
+                DEFAULT_SUPPORT_EMAIL);
+        return prepareHtmlForSend(templateType, emailTemplateService.renderEmail(templateType, request, currentStreak));
+    }
+
+    private String prepareHtmlForSend(EmailTemplateType templateType, String html) {
+        return switch (templateType) {
+            case EVERYDAY_REMINDER -> html.replace("src=\"/images/16.svg\"", "src=\"cid:mascot-16\"");
+            case CALLING_BACK -> html.replace("src=\"/images/19.svg\"", "src=\"cid:mascot-19\"");
+            case STREAK_RISK -> html.replace("src=\"/images/20.svg\"", "src=\"cid:mascot-20\"");
+            case NOTIFICATION -> html;
+        };
+    }
+
+    private Optional<Map<String, Object>> inlineMascotAttachment(EmailTemplateType templateType) {
+        String fileName = switch (templateType) {
+            case EVERYDAY_REMINDER -> "16.svg";
+            case CALLING_BACK -> "19.svg";
+            case STREAK_RISK -> "20.svg";
+            case NOTIFICATION -> null;
+        };
+        if (fileName == null) {
+            return Optional.empty();
         }
-        LocalDate today = LocalDate.now();
-        return streak.getLastActivityDate().isEqual(today) || streak.getLastActivityDate().isEqual(today.minusDays(1));
+
+        try {
+            byte[] bytes = StreamUtils.copyToByteArray(new ClassPathResource("static/images/" + fileName).getInputStream());
+            String contentId = "mascot-" + fileName.replace(".svg", "");
+            return Optional.of(Map.of(
+                    "content", Base64.getEncoder().encodeToString(bytes),
+                    "type", "image/svg+xml",
+                    "filename", fileName,
+                    "disposition", "inline",
+                    "content_id", contentId));
+        } catch (IOException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot load mascot image: " + fileName);
+        }
     }
 
     private static boolean shouldSendStreakRisk(UserDailyStreak streak) {
@@ -246,46 +332,48 @@ public class EmailReminderService {
 
     private static String callbackBySeverity(UserDailyStreak streak) {
         if (streak == null || streak.getLastActivityDate() == null) {
-            return CALLBACK_MESSAGES.get(0);
+            return "Lâu rồi mình chưa thấy bạn học. Quay lại với một bài ngắn để khởi động lại nhé.";
         }
         long inactiveDays = java.time.temporal.ChronoUnit.DAYS.between(streak.getLastActivityDate(), LocalDate.now());
-        int index = (int) Math.max(0, Math.min(CALLBACK_MESSAGES.size() - 1, inactiveDays - 1));
-        return CALLBACK_MESSAGES.get(index);
+        if (inactiveDays <= 1) {
+            return "Bài học tiếp theo vẫn đang chờ bạn, chỉ vài phút là bạn có thể bắt nhịp lại.";
+        }
+        if (inactiveDays <= 3) {
+            return "Streak có thể đã bị gián đoạn, nhưng chỉ cần một phiên học hôm nay là bạn bắt đầu lại được.";
+        }
+        return "Kiến thức y khoa cần được ôn đều. Hôm nay là lúc tốt để kết nối lại với Medicology.";
     }
 
-    private static String buildHtml(ReminderCopy copy, int currentStreak, String type) {
-        String accent = STREAK_RISK.equals(type) ? "#ef4444" : "#14b8a6";
-        String cta = STREAK_RISK.equals(type) ? "Giữ streak ngay" : "Vào học ngay";
-        return """
-                <!doctype html>
-                <html>
-                <body style="margin:0;background:#f3f7fb;font-family:Arial,Helvetica,sans-serif;color:#152238;">
-                  <div style="max-width:640px;margin:0 auto;padding:32px 16px;">
-                    <div style="background:#ffffff;border:1px solid #dbe7f0;border-radius:18px;overflow:hidden;">
-                      <div style="background:#0f172a;padding:28px 30px;color:#ffffff;">
-                        <div style="font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:#a7f3d0;">Medicology</div>
-                        <h1 style="margin:10px 0 0;font-size:28px;line-height:1.25;">%s</h1>
-                      </div>
-                      <div style="padding:30px;">
-                        <div style="display:inline-block;background:%s;color:#ffffff;border-radius:999px;padding:10px 16px;font-weight:700;">
-                          Streak hiện tại: %d ngày
-                        </div>
-                        <p style="font-size:17px;line-height:1.7;margin:24px 0;color:#334155;">%s</p>
-                        <a href="https://medicology-website.vercel.app/dashboard" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:10px;padding:13px 18px;font-weight:700;">%s</a>
-                      </div>
-                    </div>
-                  </div>
-                </body>
-                </html>
-                """.formatted(escape(copy.headline()), accent, currentStreak, escape(copy.preview()), cta);
+    private static boolean isReminderMinute(LocalTime reminderTime, LocalTime currentTime) {
+        LocalTime dueTime = reminderTime != null ? reminderTime : LocalTime.of(8, 0);
+        return dueTime.getHour() == currentTime.getHour() && dueTime.getMinute() == currentTime.getMinute();
     }
 
-    private static String escape(String value) {
-        return Optional.ofNullable(value).orElse("")
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+    private static String notificationTypeFor(EmailTemplateType templateType) {
+        return switch (templateType) {
+            case STREAK_RISK -> STREAK_RISK;
+            case CALLING_BACK -> CALLING_BACK;
+            case EVERYDAY_REMINDER -> DAILY_REMINDER;
+            case NOTIFICATION -> DAILY_REMINDER;
+        };
+    }
+
+    private static String actionTextFor(EmailTemplateType templateType) {
+        return switch (templateType) {
+            case STREAK_RISK -> "Giữ streak ngay";
+            case CALLING_BACK -> "Tiếp tục học";
+            case EVERYDAY_REMINDER -> "Bắt đầu học";
+            case NOTIFICATION -> "Mở Medicology";
+        };
+    }
+
+    private static String secondaryMessageFor(EmailTemplateType templateType) {
+        return switch (templateType) {
+            case STREAK_RISK -> "Một phiên ôn tập ngắn cũng được tính. Hãy quay lại trước khi ngày kết thúc để giữ ngọn lửa học tập.";
+            case CALLING_BACK -> "Quay lại hôm nay để giữ kiến thức y khoa luôn mới và dễ nhớ.";
+            case EVERYDAY_REMINDER -> "Tiếp tục từ nơi bạn đã dừng lại và biến hôm nay thành một ngày học hiệu quả.";
+            case NOTIFICATION -> "Học một chút mỗi ngày sẽ giúp bạn giữ vững tiến độ.";
+        };
     }
 
     private static int streakValue(UserDailyStreak streak) {
@@ -299,10 +387,6 @@ public class EmailReminderService {
         streak.setLongestStreak(0);
         streak.setTotalActiveDays(0);
         return streak;
-    }
-
-    private static String random(List<String> values) {
-        return values.get(ThreadLocalRandom.current().nextInt(values.size()));
     }
 
     private static String trimToNull(String value) {

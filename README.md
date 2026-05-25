@@ -38,16 +38,17 @@ everyday reminder, and calling-back templates use this shape.
 The streak-risk POST endpoint accepts `recipientName`, `currentStreak`, `actionText`,
 `actionUrl`, and `supportEmail`, then returns the rendered HTML email.
 
-## Send email
-- `POST /api/emails/send`
+## Scheduled email reminders
+Email sending is handled by the backend scheduler; no send API is required. The scheduler checks
+subscribed users every minute and sends when `notification_preferences.reminder_time` matches the
+configured `notification.reminder-zone`.
 
-The send endpoint accepts `toEmail`, optional `templateType`, copy fields, `currentStreak`,
-and `lastActivityDate`. If `templateType` is omitted, the service chooses:
+The backend chooses:
 - `STREAK_RISK` when `currentStreak > 0` and `lastActivityDate` was yesterday.
 - `CALLING_BACK` when `lastActivityDate` is missing or older than yesterday.
 - `EVERYDAY_REMINDER` when the user was active today or still has a normal active streak.
 
-Set `SENDGRID_FROM_EMAIL` and `SENDGRID_API_KEY` before sending real email.
+Set `SENDGRID_FROM_EMAIL` and `SENDGRID_API_KEY` before running scheduled email delivery.
 
 ## Build and test
 - Windows: `./mvnw.cmd clean test`
