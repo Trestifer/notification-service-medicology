@@ -2,6 +2,7 @@ package com.medicology.dictionary.service;
 
 import com.medicology.dictionary.dto.request.NotificationCreateRequest;
 import com.medicology.dictionary.dto.request.NotificationPreferenceRequest;
+import com.medicology.dictionary.dto.response.NotificationPageResponse;
 import com.medicology.dictionary.dto.response.NotificationPreferenceResponse;
 import com.medicology.dictionary.dto.response.NotificationResponse;
 import com.medicology.dictionary.entity.Notification;
@@ -16,6 +17,10 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,12 +44,28 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
+    public NotificationPageResponse getCurrentUserNotifications(int page, int size, Boolean read) {
+        UUID userId = authenticatedUserService.getCurrentUserId();
+        Pageable pageable = buildPageable(page, size);
+        Page<Notification> notifications = read == null
+                ? notificationRepository.findByUserId(userId, pageable)
+                : notificationRepository.findByUserIdAndRead(userId, read, pageable);
+        return toPageResponse(notifications);
+    }
+
+    @Transactional(readOnly = true)
     public List<NotificationResponse> getUnreadNotifications() {
         UUID userId = authenticatedUserService.getCurrentUserId();
         return notificationRepository.findByUserIdAndReadFalseOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationPageResponse getUnreadNotifications(int page, int size) {
+        UUID userId = authenticatedUserService.getCurrentUserId();
+        return toPageResponse(notificationRepository.findByUserIdAndReadFalse(userId, buildPageable(page, size)));
     }
 
     @Transactional(readOnly = true)
@@ -141,6 +162,27 @@ public class NotificationService {
             preference.setReminderTime(LocalTime.of(8, 0));
             return preferenceRepository.save(preference);
         });
+    }
+
+    private Pageable buildPageable(int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(100, Math.max(1, size));
+        return PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+    }
+
+    private NotificationPageResponse toPageResponse(Page<Notification> notifications) {
+        List<NotificationResponse> content = notifications.stream()
+                .map(this::toResponse)
+                .toList();
+        return new NotificationPageResponse(
+                content,
+                notifications.getTotalElements(),
+                notifications.getTotalPages(),
+                notifications.getNumber(),
+                notifications.getSize(),
+                notifications.getNumberOfElements(),
+                notifications.isFirst(),
+                notifications.isLast());
     }
 
     private NotificationResponse toResponse(Notification notification) {

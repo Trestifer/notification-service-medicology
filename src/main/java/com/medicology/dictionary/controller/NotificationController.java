@@ -9,7 +9,6 @@ import com.medicology.dictionary.dto.response.NotificationResponse;
 import com.medicology.dictionary.service.EmailReminderService;
 import com.medicology.dictionary.service.NotificationService;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -31,13 +31,24 @@ public class NotificationController {
     private final EmailReminderService emailReminderService;
 
     @GetMapping
-    public ResponseEntity<List<NotificationResponse>> getNotifications() {
-        return ResponseEntity.ok(notificationService.getCurrentUserNotifications());
+    public ResponseEntity<?> getNotifications(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) Boolean read) {
+        if (page == null && read == null) {
+            return ResponseEntity.ok(notificationService.getCurrentUserNotifications());
+        }
+        return ResponseEntity.ok(notificationService.getCurrentUserNotifications(page != null ? page : 0, size, read));
     }
 
     @GetMapping("/unread")
-    public ResponseEntity<List<NotificationResponse>> getUnreadNotifications() {
-        return ResponseEntity.ok(notificationService.getUnreadNotifications());
+    public ResponseEntity<?> getUnreadNotifications(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(defaultValue = "10") int size) {
+        if (page == null) {
+            return ResponseEntity.ok(notificationService.getUnreadNotifications());
+        }
+        return ResponseEntity.ok(notificationService.getUnreadNotifications(page, size));
     }
 
     @GetMapping("/unread/count")
