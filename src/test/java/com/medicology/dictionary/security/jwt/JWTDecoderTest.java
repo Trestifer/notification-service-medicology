@@ -9,31 +9,29 @@ import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
 class JWTDecoderTest {
 
-    @Autowired
     private JWTDecoder jwtDecoder;
 
-    @Value("${jwt.issuer}")
-    private String expectedIssuer;
+    private final String expectedIssuer = "medicology-auth";
 
-    @Value("${jwt.audience}")
-    private String expectedAudience;
+    private final String expectedAudience = "medicology-api";
 
-    @Value("${jwt.secret}")
-    private String secret;
+    private final String secret = "9a4f2c3d5e6f7g8h9i0j1k2l3m4n5n2k7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f";
 
     private SecretKey signingKey;
 
     @BeforeEach
     void setUp() {
+        jwtDecoder = new JWTDecoder();
+        ReflectionTestUtils.setField(jwtDecoder, "secretKey", secret);
+        ReflectionTestUtils.setField(jwtDecoder, "expectedIssuer", expectedIssuer);
+        ReflectionTestUtils.setField(jwtDecoder, "expectedAudience", expectedAudience);
+        jwtDecoder.init();
         signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 

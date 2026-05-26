@@ -1,14 +1,13 @@
 package com.medicology.dictionary.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.medicology.dictionary.client.AuthUserClient;
+import com.medicology.dictionary.client.LearningStreakClient;
 import com.medicology.dictionary.dto.request.EmailReminderRequest;
 import com.medicology.dictionary.dto.response.EmailReminderResponse;
 import com.medicology.dictionary.entity.Notification;
 import com.medicology.dictionary.entity.NotificationDelivery;
 import com.medicology.dictionary.entity.NotificationPreference;
-import com.medicology.dictionary.entity.UserDailyStreak;
-import com.medicology.dictionary.repository.auth.UserAccountRepository;
-import com.medicology.dictionary.repository.learning.UserDailyStreakRepository;
 import com.medicology.dictionary.repository.notification.NotificationDeliveryRepository;
 import com.medicology.dictionary.repository.notification.NotificationPreferenceRepository;
 import com.medicology.dictionary.repository.notification.NotificationRepository;
@@ -59,9 +58,9 @@ public class EmailReminderService {
     private final NotificationRepository notificationRepository;
     private final NotificationDeliveryRepository deliveryRepository;
     private final NotificationPreferenceRepository preferenceRepository;
-    private final UserAccountRepository userAccountRepository;
-    private final UserDailyStreakRepository streakRepository;
     private final AuthenticatedUserService authenticatedUserService;
+    private final AuthUserClient authUserClient;
+    private final LearningStreakClient learningStreakClient;
     private final RestTemplateBuilder restTemplateBuilder;
     private final ObjectMapper objectMapper;
 
@@ -74,7 +73,7 @@ public class EmailReminderService {
     @Transactional
     public EmailReminderResponse sendDailyReminder(EmailReminderRequest request) {
         ReminderTarget target = resolveTarget(request);
-        UserDailyStreak streak = streakRepository.findById(target.userId()).orElseGet(() -> emptyStreak(target.userId()));
+        ReminderStreak streak = resolveStreak(target, request);
         ReminderCopy copy = buildDailyCopy(streak);
         return sendAndRecord(target, DAILY_REMINDER, copy, streakValue(streak));
     }
@@ -82,17 +81,18 @@ public class EmailReminderService {
     @Transactional
     public EmailReminderResponse sendStreakRiskReminder(EmailReminderRequest request) {
         ReminderTarget target = resolveTarget(request);
-        return sendStreakRiskReminder(target);
+        return sendStreakRiskReminder(target, resolveStreak(target, request));
     }
 
     public int sendStreakRiskRemindersToSubscribedUsers() {
         int sent = 0;
         for (NotificationPreference preference : preferenceRepository.findByEmailEnabledTrue()) {
-            String email = resolveStoredEmail(preference);
+            String email = resolveEmail(preference);
             if (email == null) {
                 continue;
             }
-            EmailReminderResponse response = sendStreakRiskReminder(new ReminderTarget(preference.getUserId(), email));
+            ReminderTarget target = new ReminderTarget(preference.getUserId(), email);
+            EmailReminderResponse response = sendStreakRiskReminder(target, resolveStreak(target, null));
             if (response.sent()) {
                 sent++;
             }
@@ -100,18 +100,24 @@ public class EmailReminderService {
         return sent;
     }
 
-    private String resolveStoredEmail(NotificationPreference preference) {
+    private String resolveEmail(NotificationPreference preference) {
+        String apiEmail = authUserClient.getUser(preference.getUserId())
+                .map(AuthUserClient.AuthUser::email)
+                .map(EmailReminderService::trimToNull)
+                .orElse(null);
+        if (apiEmail != null) {
+            return apiEmail;
+        }
+
         String preferenceEmail = trimToNull(preference.getEmail());
         if (preferenceEmail != null) {
             return preferenceEmail;
         }
-        return userAccountRepository.findById(preference.getUserId())
-                .map(user -> trimToNull(user.getEmail()))
-                .orElse(null);
+        return null;
     }
 
-    private EmailReminderResponse sendStreakRiskReminder(ReminderTarget target) {
-        UserDailyStreak streak = streakRepository.findById(target.userId()).orElseGet(() -> emptyStreak(target.userId()));
+    private EmailReminderResponse sendStreakRiskReminder(ReminderTarget target, ReminderStreak requestStreak) {
+        ReminderStreak streak = requestStreak != null ? requestStreak : new ReminderStreak(0, null);
         int currentStreak = streakValue(streak);
         if (!shouldSendStreakRisk(streak)) {
             return new EmailReminderResponse(
@@ -144,14 +150,35 @@ public class EmailReminderService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Ban khong co quyen gui email cho nguoi dung khac.");
         }
 
-        String email = requestedEmail != null ? requestedEmail : currentUser.getEmail();
-        if (!currentUserTarget && requestedEmail == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Can cung cap email khi admin gui cho user khac.");
+        String email = requestedEmail;
+        if (email == null) {
+            email = authUserClient.getUser(targetUserId)
+                    .map(AuthUserClient.AuthUser::email)
+                    .map(EmailReminderService::trimToNull)
+                    .orElse(null);
+        }
+        if (email == null && currentUserTarget) {
+            email = currentUser.getEmail();
+        }
+        if (!currentUserTarget && email == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khong tim thay email nguoi nhan tu auth service.");
         }
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Khong tim thay email nguoi nhan.");
         }
         return new ReminderTarget(targetUserId, email);
+    }
+
+    private ReminderStreak resolveStreak(ReminderTarget target, EmailReminderRequest request) {
+        Optional<LearningStreakClient.LearningStreak> apiStreak = learningStreakClient.getStreak(target.userId());
+        if (apiStreak.isPresent()) {
+            LearningStreakClient.LearningStreak streak = apiStreak.get();
+            return new ReminderStreak(streak.currentStreak(), streak.lastActivityDate());
+        }
+        if (request == null) {
+            return new ReminderStreak(0, null);
+        }
+        return new ReminderStreak(request.currentStreak(), request.lastActivityDate());
     }
 
     private EmailReminderResponse sendAndRecord(ReminderTarget target, String type, ReminderCopy copy, int currentStreak) {
@@ -219,7 +246,7 @@ public class EmailReminderService {
         }
     }
 
-    private ReminderCopy buildDailyCopy(UserDailyStreak streak) {
+    private ReminderCopy buildDailyCopy(ReminderStreak streak) {
         boolean validStreak = hasValidStreak(streak);
         String message = validStreak ? random(ACTIVE_STREAK_MESSAGES) : callbackBySeverity(streak);
         int currentStreak = streakValue(streak);
@@ -229,26 +256,26 @@ public class EmailReminderService {
         return new ReminderCopy(subject, message, validStreak ? "Hôm nay học tiếp để giữ nhịp nhé" : "Bắt đầu lại bằng một bài ngắn");
     }
 
-    private static boolean hasValidStreak(UserDailyStreak streak) {
-        if (streak == null || streakValue(streak) <= 0 || streak.getLastActivityDate() == null) {
+    private static boolean hasValidStreak(ReminderStreak streak) {
+        if (streak == null || streakValue(streak) <= 0 || streak.lastActivityDate() == null) {
             return false;
         }
         LocalDate today = LocalDate.now();
-        return streak.getLastActivityDate().isEqual(today) || streak.getLastActivityDate().isEqual(today.minusDays(1));
+        return streak.lastActivityDate().isEqual(today) || streak.lastActivityDate().isEqual(today.minusDays(1));
     }
 
-    private static boolean shouldSendStreakRisk(UserDailyStreak streak) {
-        if (streak == null || streakValue(streak) <= 0 || streak.getLastActivityDate() == null) {
+    private static boolean shouldSendStreakRisk(ReminderStreak streak) {
+        if (streak == null || streakValue(streak) <= 0 || streak.lastActivityDate() == null) {
             return false;
         }
-        return streak.getLastActivityDate().isEqual(LocalDate.now().minusDays(1));
+        return streak.lastActivityDate().isEqual(LocalDate.now().minusDays(1));
     }
 
-    private static String callbackBySeverity(UserDailyStreak streak) {
-        if (streak == null || streak.getLastActivityDate() == null) {
+    private static String callbackBySeverity(ReminderStreak streak) {
+        if (streak == null || streak.lastActivityDate() == null) {
             return CALLBACK_MESSAGES.get(0);
         }
-        long inactiveDays = java.time.temporal.ChronoUnit.DAYS.between(streak.getLastActivityDate(), LocalDate.now());
+        long inactiveDays = java.time.temporal.ChronoUnit.DAYS.between(streak.lastActivityDate(), LocalDate.now());
         int index = (int) Math.max(0, Math.min(CALLBACK_MESSAGES.size() - 1, inactiveDays - 1));
         return CALLBACK_MESSAGES.get(index);
     }
@@ -288,17 +315,8 @@ public class EmailReminderService {
                 .replace("\"", "&quot;");
     }
 
-    private static int streakValue(UserDailyStreak streak) {
-        return streak != null && streak.getCurrentStreak() != null ? Math.max(0, streak.getCurrentStreak()) : 0;
-    }
-
-    private static UserDailyStreak emptyStreak(UUID userId) {
-        UserDailyStreak streak = new UserDailyStreak();
-        streak.setUserId(userId);
-        streak.setCurrentStreak(0);
-        streak.setLongestStreak(0);
-        streak.setTotalActiveDays(0);
-        return streak;
+    private static int streakValue(ReminderStreak streak) {
+        return streak != null && streak.currentStreak() != null ? Math.max(0, streak.currentStreak()) : 0;
     }
 
     private static String random(List<String> values) {
@@ -313,5 +331,6 @@ public class EmailReminderService {
     }
 
     private record ReminderTarget(UUID userId, String email) {}
+    private record ReminderStreak(Integer currentStreak, LocalDate lastActivityDate) {}
     private record ReminderCopy(String subject, String preview, String headline) {}
 }
