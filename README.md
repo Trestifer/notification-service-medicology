@@ -21,6 +21,35 @@ App starts at `http://localhost:8080`.
 ## Health endpoint
 - `GET /api/health`
 
+## Email template preview
+- `GET /api/email-templates/notification/preview`
+- `POST /api/email-templates/notification/preview`
+- `GET /api/email-templates/streak-risk/preview`
+- `POST /api/email-templates/streak-risk/preview`
+- `GET /api/email-templates/everyday-reminder/preview`
+- `POST /api/email-templates/everyday-reminder/preview`
+- `GET /api/email-templates/calling-back/preview`
+- `POST /api/email-templates/calling-back/preview`
+
+The POST endpoint accepts `recipientName`, `headline`, `message`, `actionText`, `actionUrl`,
+`secondaryMessage`, and `supportEmail`, then returns the rendered HTML email. The notification
+everyday reminder, and calling-back templates use this shape.
+
+The streak-risk POST endpoint accepts `recipientName`, `currentStreak`, `actionText`,
+`actionUrl`, and `supportEmail`, then returns the rendered HTML email.
+
+## Scheduled email reminders
+Email sending is handled by the backend scheduler; no send API is required. The scheduler checks
+subscribed users every minute and sends when `notification_preferences.reminder_time` matches the
+configured `notification.reminder-zone`.
+
+The backend chooses:
+- `STREAK_RISK` when `currentStreak > 0` and `lastActivityDate` was yesterday.
+- `CALLING_BACK` when `lastActivityDate` is missing or older than yesterday.
+- `EVERYDAY_REMINDER` when the user was active today or still has a normal active streak.
+
+Set `SENDGRID_FROM_EMAIL` and `SENDGRID_API_KEY` before running scheduled email delivery.
+
 ## Build and test
 - Windows: `./mvnw.cmd clean test`
 - macOS/Linux: `./mvnw clean test`

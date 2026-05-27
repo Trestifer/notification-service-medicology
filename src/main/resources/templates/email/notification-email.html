@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${headline}">Cập nhật mới từ Medicology</title>
+    <style>
+        .btn-primary:hover {
+            background-color: #148fca !important;
+            transform: scale(1.03);
+        }
+
+        .support-link:hover {
+            color: #1094d1 !important;
+        }
+
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                width: 100% !important;
+                padding: 36px 20px !important;
+            }
+
+            .email-copy {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+        }
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f9f9f9;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;" th:text="${message}">
+    Bạn có một cập nhật mới trong hành trình học tập.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background-color:#f9f9f9;">
+    <tr>
+        <td align="center" style="padding:0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" class="email-container"
+                   style="width:600px;max-width:600px;border-collapse:collapse;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;text-align:center;padding:50px 0;">
+                <tr>
+                    <td align="center" style="padding:50px 0 0 0;">
+                        <img src="https://gagxbaxkhopxpwoxniqd.supabase.co/storage/v1/object/public/Medicology's%20email%20request/logo.svg"
+                             width="150" alt="Medicology"
+                             style="display:block;width:150px;max-width:150px;margin:0 auto 20px auto;border:0;">
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:0;">
+                        <img src="https://gagxbaxkhopxpwoxniqd.supabase.co/storage/v1/object/public/Medicology's%20email%20request/mascot.svg"
+                             width="100" alt="Medicology mascot"
+                             style="display:block;width:100px;max-width:100px;margin:0 auto 20px auto;border:0;">
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:0 50px;">
+                        <h2 style="margin:0 0 18px 0;color:#333333;font-size:24px;line-height:32px;font-weight:700;"
+                            th:text="${headline}">Cập nhật mới từ Medicology</h2>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="email-copy" style="padding:0 50px;">
+                        <p style="margin:0 0 10px 0;font-size:16px;line-height:24px;color:#555555;">
+                            Chào <span th:text="${recipientName}">bạn</span>,
+                        </p>
+                        <p style="margin:0 0 30px 0;font-size:16px;line-height:24px;color:#555555;"
+                           th:text="${message}">Bạn có một cập nhật mới trong hành trình học tập.</p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:0 50px;">
+                        <a th:href="${actionUrl}" href="https://medicology.app" target="_blank"
+                           class="btn-primary"
+                           style="background-color:#1CB0F6;color:#ffffff;padding:15px 30px;text-decoration:none;border-radius:10px;font-size:15px;line-height:20px;font-weight:bold;display:inline-block;transition:all 0.3s ease;"
+                           th:text="${actionText}">Mở Medicology</a>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="email-copy" style="padding:40px 50px 50px 50px;">
+                        <p style="margin:0 0 16px 0;font-size:14px;line-height:22px;color:#777777;"
+                           th:text="${secondaryMessage}">Học một chút mỗi ngày sẽ giúp bạn giữ vững tiến độ.</p>
+                        <p style="margin:0;font-size:14px;line-height:22px;color:#999999;">
+                            Cần hỗ trợ? Liên hệ
+                            <a th:href="'mailto:' + ${supportEmail}" href="mailto:support@medicology.app"
+                               class="support-link"
+                               style="color:#27A8E7;text-decoration:underline;" th:text="${supportEmail}">support@medicology.app</a>.
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>

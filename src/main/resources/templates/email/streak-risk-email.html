@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Streak của bạn cần bạn hôm nay</title>
+    <style>
+        .btn-primary:hover {
+            background-color: #148fca !important;
+            transform: scale(1.03);
+        }
+
+        .support-link:hover {
+            color: #1094d1 !important;
+        }
+
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                width: 100% !important;
+                padding: 36px 20px !important;
+            }
+
+            .email-copy {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+
+            .streak-number {
+                font-size: 48px !important;
+                line-height: 52px !important;
+            }
+
+            .streak-visual-cell {
+                display: table-cell !important;
+                width: auto !important;
+            }
+
+            .streak-mascot {
+                width: 270px !important;
+                max-width: 270px !important;
+                margin: 0 -34px -18px -38px !important;
+            }
+
+            .fire-icon {
+                font-size: 46px !important;
+                line-height: 46px !important;
+            }
+        }
+    </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f9f9f9;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+    Streak Medicology của bạn đang có nguy cơ bị mất. Hoàn thành một bài học ngắn để giữ streak.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background-color:#f9f9f9;">
+    <tr>
+        <td align="center" style="padding:0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" class="email-container"
+                   style="width:600px;max-width:600px;border-collapse:collapse;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;text-align:center;padding:50px 0;">
+                <tr>
+                    <td align="center" style="padding:50px 0 0 0;">
+                        <img src="https://gagxbaxkhopxpwoxniqd.supabase.co/storage/v1/object/public/Medicology's%20email%20request/logo.svg"
+                             width="150" alt="Medicology"
+                             style="display:block;width:150px;max-width:150px;margin:0 auto 18px auto;border:0;">
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:0 50px;">
+                        <h2 style="margin:0 0 14px 0;color:#333333;font-size:25px;line-height:32px;font-weight:700;">
+                            Streak của bạn đang có nguy cơ bị mất
+                        </h2>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="email-copy" style="padding:0 50px;">
+                        <p style="margin:0 0 22px 0;font-size:16px;line-height:24px;color:#555555;">
+                            Chào <span th:text="${recipientName}">bạn</span>, hoàn thành một bài học ngắn hôm nay để bảo vệ tiến độ của bạn.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:0 50px 26px 50px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 auto;">
+                            <tr>
+                                <td class="streak-visual-cell" valign="bottom" style="padding:44px 0 0 0;text-align:right;">
+                                    <img src="/images/20.svg"
+                                         class="streak-mascot"
+                                         width="330" alt="Nhắc giữ streak Medicology"
+                                         style="display:block;width:330px;max-width:330px;margin:0 -42px -22px -54px;border:0;">
+                                </td>
+                                <td class="streak-visual-cell" valign="middle" style="padding:0;text-align:left;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0"
+                                           style="border-collapse:collapse;margin:0;background-color:#fff7ed;border:2px solid #ffd4a3;border-radius:18px;">
+                                        <tr>
+                                            <td style="padding:18px 24px;text-align:center;">
+                                                <div class="fire-icon" style="font-size:52px;line-height:52px;margin:0 0 6px 0;">&#128293;</div>
+                                                <div class="streak-number"
+                                                     style="font-size:58px;line-height:62px;font-weight:800;color:#ff8a00;margin:0;"
+                                                     th:text="${currentStreak}">7</div>
+                                                <div style="font-size:15px;line-height:22px;font-weight:bold;color:#7c4a03;text-transform:uppercase;">
+                                                    ngày streak
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:0 50px;">
+                        <a th:href="${actionUrl}" href="https://medicology.app" target="_blank"
+                           class="btn-primary"
+                           style="background-color:#1CB0F6;color:#ffffff;padding:15px 30px;text-decoration:none;border-radius:10px;font-size:15px;line-height:20px;font-weight:bold;display:inline-block;transition:all 0.3s ease;"
+                           th:text="${actionText}">Giữ streak ngay</a>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="email-copy" style="padding:38px 50px 50px 50px;">
+                        <p style="margin:0 0 16px 0;font-size:14px;line-height:22px;color:#777777;">
+                            Một phiên ôn tập ngắn cũng được tính. Hãy quay lại trước khi ngày kết thúc để giữ ngọn lửa học tập.
+                        </p>
+                        <p style="margin:0;font-size:14px;line-height:22px;color:#999999;">
+                            Cần hỗ trợ? Liên hệ
+                            <a th:href="'mailto:' + ${supportEmail}" href="mailto:support@medicology.app"
+                               class="support-link"
+                               style="color:#27A8E7;text-decoration:underline;" th:text="${supportEmail}">support@medicology.app</a>.
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
